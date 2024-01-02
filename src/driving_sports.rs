@@ -1,5 +1,12 @@
-use reqwest::{ClientBuilder, Client, IntoUrl};
+use std::collections::HashSet;
+
+use once_cell::sync::Lazy;
+use regex::Regex;
+use reqwest::ClientBuilder;
 use scraper::{Selector, Html};
+use serenity::{all::Message, async_trait, builder::{CreateMessage, CreateAllowedMentions}};
+
+use crate::common::{EventFinder, fetch_page_text};
 
 const DRIVING_SPORTS_COM: &str = "https://www.drivingsports.com.au/";
 const MENU_ITEM_SELECTOR: &str = ".menu-item-object-page > a";
@@ -12,6 +19,41 @@ const NON_EVENT_ITEMS: &[&str] = &[
     "events",
     "contact",
 ];
+
+const DRIVING_SPORTS_MESSAGE: &str = "@everyone New DrivingSports event:";
+static MESSAGE_PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new(&format!(r"^{DRIVING_SPORTS_MESSAGE} \*\*(.*)\*\*$")).unwrap());
+
+pub struct DrivingSports {
+    previous_events: HashSet<String>,
+}
+
+impl DrivingSports {
+    pub fn new() -> Self {
+        Self {
+            previous_events: HashSet::new(),
+        }
+    }
+}
+
+#[async_trait]
+impl EventFinder for DrivingSports {
+    fn previous_broadcast(&mut self, message: &Message) {
+        if let Some(captures) = MESSAGE_PATTERN.captures(&message.content) {
+            self.previous_events.insert(captures.get(1).unwrap().as_str().to_string());
+        }
+    }
+
+    async fn new_broadcasts(&self) -> Vec<CreateMessage> {
+        let current_events: HashSet<_> = HashSet::from_iter(get_driving_sports_events().await);
+        let new_events = &current_events - &self.previous_events;
+
+        new_events.into_iter()
+            .map(|event| CreateMessage::new()
+                .allowed_mentions(CreateAllowedMentions::new().everyone(true))
+                .content(format!("{DRIVING_SPORTS_MESSAGE} **{event}**")))
+            .collect()
+    }
+}
 
 pub async fn get_driving_sports_events() -> Vec<String> {
     let client = ClientBuilder::new()
@@ -27,10 +69,10 @@ pub async fn get_driving_sports_events() -> Vec<String> {
     
         parsed_homepage.select(&selector)
             .filter_map(|item| item.attr("href"))
-            .map(|item| item.trim_start_matches(DRIVING_SPORTS_COM).trim_end_matches("/"))
+            .map(|item| item.trim_start_matches(DRIVING_SPORTS_COM).trim_end_matches('/'))
             .filter(|item| !item.is_empty())
             .filter(|item| !NON_EVENT_ITEMS.contains(item))
-            .map(|item| item.to_string())
+            .map(str::to_string)
             .collect::<Vec<_>>()
     };
 
@@ -55,14 +97,4 @@ pub async fn get_driving_sports_events() -> Vec<String> {
     println!("Events: {titles:?}");
 
     titles
-}
-
-async fn fetch_page_text(client: &Client, url: impl IntoUrl) -> String {
-    client.get(url)
-        .send()
-        .await
-        .unwrap()
-        .text()
-        .await
-        .unwrap()
 }

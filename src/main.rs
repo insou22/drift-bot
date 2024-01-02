@@ -1,84 +1,67 @@
+pub mod common;
+mod adc;
 mod driving_sports;
 
-use std::collections::HashSet;
-use std::pin::pin;
-use std::time::Duration;
+use common::EventFinder;
+use adc::Adc;
+use driving_sports::DrivingSports;
+
+use std::{pin::pin, time::Duration};
 
 use dotenv::dotenv;
-use regex::Regex;
-use serenity::all::{ChannelId, GuildId};
-use serenity::async_trait;
-use serenity::builder::{CreateMessage, CreateAllowedMentions};
-use serenity::framework::standard::StandardFramework;
-use serenity::futures::StreamExt;
-use serenity::prelude::*;
+use serenity::{all::{ChannelId, GuildId}, async_trait, framework::standard::StandardFramework, futures::StreamExt, prelude::*};
 use tokio::time::sleep;
 
 #[allow(unused)]
 const ZAC_BOTS_ID: GuildId = GuildId::new(1191667614431314040);
+#[allow(unused)]
+const TEST_CHANNEL_ID: ChannelId = ChannelId::new(1191767432730267769);
 const GENERAL_ID: ChannelId = ChannelId::new(1191667614431314043);
 
-const DRIVING_SPORTS_MESSAGE: &str = "@everyone New DrivingSports event:";
-
-struct Handler;
+struct DiscordBot;
 
 #[async_trait]
-impl EventHandler for Handler {
+impl EventHandler for DiscordBot {
     async fn cache_ready(&self, ctx: Context, _guilds: Vec<GuildId>) {
-        let new_event_message_pattern = Regex::new(&format!(r"^{DRIVING_SPORTS_MESSAGE} \*\*(.*)\*\*$")).unwrap();
+        let mut event_finders: Vec<Box<dyn EventFinder>> = vec![
+            Box::new(DrivingSports::new()),
+            Box::new(Adc::new()),
+        ];
 
         loop {
             println!("Checking for previously broadcasted events...");
-            let mut broadcasted_events = vec![];
             
             let mut messages = pin!(GENERAL_ID.messages_iter(ctx.http()));
             while let Some(message) = messages.next().await {
                 if let Ok(message) = message {
                     if message.author.id == ctx.cache.current_user().id {
-                        if let Some(captures) = new_event_message_pattern.captures(&message.content) {
-                            broadcasted_events.push(captures.get(1).unwrap().as_str().to_string());
+                        for event_finder in &mut event_finders {
+                            event_finder.previous_broadcast(&message);
                         }
                     }
                 }
             }
 
-            println!("Have previously broadcasted:");
-            for event in &broadcasted_events {
-                println!("* {event}");
-            }
-
             loop {
                 println!("Checking current events...");
 
-                let current_events: HashSet<_> = HashSet::from_iter(driving_sports::get_driving_sports_events().await);
+                let mut broadcast_occured = false;
 
-                println!("Found current events:");
-                for event in &current_events {
-                    println!("* {event}");
-                }
+                for event_finder in &event_finders {
+                    let new_broadcasts = event_finder.new_broadcasts().await;
 
-                let new_events = &current_events - &HashSet::from_iter(broadcasted_events.clone());
+                    for broadcast in new_broadcasts {
+                        broadcast_occured = true;
 
-                println!("New events:");
-                for event in &new_events {
-                    println!("* {event}");
-                }
-
-                for event in &new_events {
-                    println!("Notifying for new event: {event}");
-
-                    let message = CreateMessage::new()
-                        .allowed_mentions(CreateAllowedMentions::new().everyone(true))
-                        .content(format!("{DRIVING_SPORTS_MESSAGE} **{event}**"));
-
-                    GENERAL_ID.send_message(ctx.http(), message)
-                        .await
-                        .expect("Failed to send message");
+                        GENERAL_ID.send_message(ctx.http(), broadcast)
+                            .await
+                            .expect("Failed to send message");
+                    }
                 }
 
                 sleep(Duration::from_secs(60)).await;
 
-                if !new_events.is_empty() {
+                if broadcast_occured {
                     println!("Refreshing previously broadcasted events...");
                     break;
                 }
@@ -97,12 +80,12 @@ async fn main() {
     let framework = StandardFramework::new();
     let intents = GatewayIntents::all();
     let mut client = Client::builder(token, intents)
-        .event_handler(Handler)
+        .event_handler(DiscordBot)
         .framework(framework)
         .await
         .expect("Error creating client");
 
     if let Err(why) = client.start().await {
-        println!("An error occurred while running the client: {:?}", why);
+        println!("An error occurred while running the client: {why:?}");
     }
 }
