@@ -1,15 +1,21 @@
-pub mod common;
 mod adc;
+pub mod common;
 mod driving_sports;
 
-use common::EventFinder;
 use adc::Adc;
+use common::EventFinder;
 use driving_sports::DrivingSports;
 
 use std::{pin::pin, time::Duration};
 
 use dotenv::dotenv;
-use serenity::{all::{ChannelId, GuildId}, async_trait, framework::standard::StandardFramework, futures::StreamExt, prelude::*};
+use serenity::{
+    all::{ChannelId, GuildId},
+    async_trait,
+    framework::standard::StandardFramework,
+    futures::StreamExt,
+    prelude::*,
+};
 use tokio::time::sleep;
 
 #[allow(unused)]
@@ -23,14 +29,12 @@ struct DiscordBot;
 #[async_trait]
 impl EventHandler for DiscordBot {
     async fn cache_ready(&self, ctx: Context, _guilds: Vec<GuildId>) {
-        let mut event_finders: Vec<Box<dyn EventFinder>> = vec![
-            Box::new(DrivingSports::new()),
-            Box::new(Adc::new()),
-        ];
+        let mut event_finders: Vec<Box<dyn EventFinder>> =
+            vec![Box::new(DrivingSports::new()), Box::new(Adc::new())];
 
         loop {
             println!("Checking for previously broadcasted events...");
-            
+
             let mut messages = pin!(GENERAL_ID.messages_iter(ctx.http()));
             while let Some(message) = messages.next().await {
                 if let Ok(message) = message {
@@ -53,7 +57,8 @@ impl EventHandler for DiscordBot {
                     for broadcast in new_broadcasts {
                         broadcast_occured = true;
 
-                        GENERAL_ID.send_message(ctx.http(), broadcast)
+                        GENERAL_ID
+                            .send_message(ctx.http(), broadcast)
                             .await
                             .expect("Failed to send message");
                     }
@@ -74,8 +79,7 @@ impl EventHandler for DiscordBot {
 async fn main() {
     dotenv().ok();
 
-    let token = std::env::var("DISCORD_TOKEN")
-        .expect("Missing DISCORD_TOKEN");
+    let token = std::env::var("DISCORD_TOKEN").expect("Missing DISCORD_TOKEN");
 
     let framework = StandardFramework::new();
     let intents = GatewayIntents::all();
