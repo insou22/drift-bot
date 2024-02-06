@@ -54,13 +54,21 @@ impl EventHandler for DiscordBot {
                 for event_finder in &event_finders {
                     let new_broadcasts = event_finder.new_broadcasts().await;
 
-                    for broadcast in new_broadcasts {
-                        broadcast_occured = true;
+                    match new_broadcasts {
+                        Ok(new_broadcasts) => {
+                            for broadcast in new_broadcasts {
+                                broadcast_occured = true;
 
-                        GENERAL_ID
-                            .send_message(ctx.http(), broadcast)
-                            .await
-                            .expect("Failed to send message");
+                                if let Err(err) =
+                                    GENERAL_ID.send_message(ctx.http(), broadcast).await
+                                {
+                                    eprintln!("Error sending discord message: {err}");
+                                }
+                            }
+                        }
+                        Err(err) => {
+                            eprintln!("Error discovering events: {err}");
+                        }
                     }
                 }
 

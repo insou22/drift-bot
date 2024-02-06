@@ -1,5 +1,6 @@
 use std::{collections::HashSet, future::Future, pin::Pin};
 
+use anyhow::{Context, Result};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use reqwest::ClientBuilder;
@@ -18,7 +19,7 @@ const BANNER_SELECTOR: &str = ".mep-event-thumbnail > img";
 const ADC_MESSAGE: &str = "@everyone New ADC event:";
 
 static MESSAGE_PATTERN: Lazy<Regex> =
-    Lazy::new(|| Regex::new(&format!(r"^{ADC_MESSAGE} \*\*(.*)\*\*$")).unwrap());
+    Lazy::new(|| Regex::new(&format!(r"^{ADC_MESSAGE} \*\*(.*)\*\*$")).expect("Is a valid regex"));
 
 pub struct Adc {
     previous_titles: HashSet<String>,
@@ -35,18 +36,25 @@ impl Adc {
 impl EventFinder for Adc {
     fn previous_broadcast(&mut self, message: &Message) {
         if let Some(captures) = MESSAGE_PATTERN.captures(&message.content) {
-            self.previous_titles
-                .insert(captures.get(1).unwrap().as_str().to_string());
+            self.previous_titles.insert(
+                captures
+                    .get(1)
+                    .expect("Capture group 1 is present in regex")
+                    .as_str()
+                    .to_string(),
+            );
         }
     }
 
-    fn new_broadcasts<'a>(&'a self) -> Pin<Box<dyn Future<Output = Vec<CreateMessage>> + Send + 'a>>
+    fn new_broadcasts<'a>(
+        &'a self,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<CreateMessage>>> + Send + 'a>>
     where
         Self: Sync + 'a,
     {
         Box::pin(async move {
-            get_adc_events()
-                .await
+            Ok(get_adc_events()
+                .await?
                 .into_iter()
                 .filter(|event| !self.previous_titles.contains(&event.title))
                 .map(|event| {
@@ -65,7 +73,7 @@ impl EventFinder for Adc {
 
                     message
                 })
-                .collect()
+                .collect())
         })
     }
 }
@@ -77,26 +85,33 @@ pub struct AdcEvent {
     pub banner_url: Option<String>,
 }
 
-pub async fn get_adc_events() -> Vec<AdcEvent> {
-    let client = ClientBuilder::new().build().unwrap();
+pub async fn get_adc_events() -> Result<Vec<AdcEvent>> {
+    let client = ClientBuilder::new()
+        .build()
+        .expect("System TLS must be present");
 
-    let urls = fetch_sitemap_urls(&client, format!("{ADC_COM}{EVENT_SITEMAP_PATH}")).await;
+    let urls = fetch_sitemap_urls(&client, &format!("{ADC_COM}{EVENT_SITEMAP_PATH}")).await?;
 
     let mut events = Vec::new();
 
     for url in urls {
-        let page_text = fetch_page_text(&client, &url).await;
+        let page_text = fetch_page_text(&client, &url).await?;
         let page = Html::parse_document(&page_text);
-        let title_selector = Selector::parse(TITLE_SELECTOR).unwrap();
-        let banner_selector = Selector::parse(BANNER_SELECTOR).unwrap();
+        let title_selector =
+            Selector::parse(TITLE_SELECTOR).expect("TITLE_SELECTOR is known to be valid");
+        let banner_selector =
+            Selector::parse(BANNER_SELECTOR).expect("BANNER_SELECTOR is known to be valid");
 
-        let title = page.select(&title_selector).next().unwrap().inner_html();
+        let title = page
+            .select(&title_selector)
+            .next()
+            .context("Failed to parse title from page")?
+            .inner_html();
 
         let banner_url = page
             .select(&banner_selector)
             .next()
-            .unwrap()
-            .attr("data-src")
+            .and_then(|banner| banner.attr("data-src"))
             .map(ToString::to_string);
 
         events.push(AdcEvent {
@@ -106,5 +121,5 @@ pub async fn get_adc_events() -> Vec<AdcEvent> {
         });
     }
 
-    events
+    Ok(events)
 }

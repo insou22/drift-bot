@@ -1,5 +1,6 @@
 use std::{collections::HashSet, future::Future, pin::Pin};
 
+use anyhow::Result;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use reqwest::ClientBuilder;
@@ -32,7 +33,7 @@ static MESSAGE_PATTERN: Lazy<Regex> = Lazy::new(|| {
     Regex::new(&format!(
         r"^{DRIVING_SPORTS_MESSAGE} \[?\*\*(.*)\*\*(\]\(.*\))?$"
     ))
-    .unwrap()
+    .expect("Is a valid regex")
 });
 
 pub struct DrivingSports {
@@ -50,18 +51,25 @@ impl DrivingSports {
 impl EventFinder for DrivingSports {
     fn previous_broadcast(&mut self, message: &Message) {
         if let Some(captures) = MESSAGE_PATTERN.captures(&message.content) {
-            self.previous_titles
-                .insert(captures.get(1).unwrap().as_str().to_string());
+            self.previous_titles.insert(
+                captures
+                    .get(1)
+                    .expect("Capture group 1 is present in regex")
+                    .as_str()
+                    .to_string(),
+            );
         }
     }
 
-    fn new_broadcasts<'a>(&'a self) -> Pin<Box<dyn Future<Output = Vec<CreateMessage>> + Send + 'a>>
+    fn new_broadcasts<'a>(
+        &'a self,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<CreateMessage>>> + Send + 'a>>
     where
         Self: Sync + 'a,
     {
         Box::pin(async move {
-            get_driving_sports_events()
-                .await
+            Ok(get_driving_sports_events()
+                .await?
                 .into_iter()
                 .filter(|event| !self.previous_titles.contains(&event.title))
                 .map(|event| {
@@ -72,7 +80,7 @@ impl EventFinder for DrivingSports {
                             event.title, event.url
                         ))
                 })
-                .collect()
+                .collect())
         })
     }
 }
@@ -83,11 +91,16 @@ pub struct DrivingSportsEvent {
     pub title: String,
 }
 
-pub async fn get_driving_sports_events() -> Vec<DrivingSportsEvent> {
-    let client = ClientBuilder::new().build().unwrap();
+pub async fn get_driving_sports_events() -> Result<Vec<DrivingSportsEvent>> {
+    let client = ClientBuilder::new()
+        .build()
+        .expect("System TLS must be present");
 
-    let urls =
-        fetch_sitemap_urls(&client, format!("{DRIVING_SPORTS_COM}{POSTS_SITEMAP_PATH}")).await;
+    let urls = fetch_sitemap_urls(
+        &client,
+        &format!("{DRIVING_SPORTS_COM}{POSTS_SITEMAP_PATH}"),
+    )
+    .await?;
     let mut urls = urls.into_iter().peekable();
 
     let mut events = Vec::new();
@@ -101,7 +114,8 @@ pub async fn get_driving_sports_events() -> Vec<DrivingSportsEvent> {
         urls.next();
     }
 
-    let title_selector = Selector::parse(TITLE_SELECTOR).unwrap();
+    let title_selector =
+        Selector::parse(TITLE_SELECTOR).expect("TITLE_SELECTOR is known to be valid");
 
     for url in urls {
         let page_name = url
@@ -112,7 +126,7 @@ pub async fn get_driving_sports_events() -> Vec<DrivingSportsEvent> {
             continue;
         }
 
-        let page_contents = fetch_page_text(&client, &url).await;
+        let page_contents = fetch_page_text(&client, &url).await?;
         let page = Html::parse_document(&page_contents);
 
         if let Some(title) = page.select(&title_selector).next() {
@@ -122,5 +136,5 @@ pub async fn get_driving_sports_events() -> Vec<DrivingSportsEvent> {
         }
     }
 
-    events
+    Ok(events)
 }
