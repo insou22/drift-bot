@@ -27,12 +27,12 @@ pub async fn fetch_page_text(client: &Client, url: &str) -> Result<String> {
 pub async fn fetch_sitemap_urls(client: &Client, sitemap_url: &str) -> Result<Vec<String>> {
     let sitemap_text = fetch_page_text(client, sitemap_url).await?;
     let sitemap_xml =
-        roxmltree::Document::parse(&sitemap_text).context("Failed to parse sitemap as XML")?;
+        roxmltree::Document::parse(&sitemap_text).with_context(|| format!("Failed to parse sitemap at {sitemap_url} as XML"))?;
 
     let urlset = sitemap_xml
         .descendants()
         .find(|node| node.has_tag_name("urlset"))
-        .context("Sitemap is missing urlset")?;
+        .with_context(|| format!("Sitemap at {sitemap_url} is missing urlset"))?;
 
     let urls = urlset
         .children()

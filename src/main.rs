@@ -6,7 +6,7 @@ use adc::Adc;
 use common::EventFinder;
 use driving_sports::DrivingSports;
 
-use std::{pin::pin, time::Duration};
+use std::{pin::pin, time::Duration, env};
 
 use dotenv::dotenv;
 use serenity::{
@@ -86,6 +86,10 @@ impl EventHandler for DiscordBot {
 #[tokio::main]
 async fn main() {
     dotenv().ok();
+
+    if env::var("RUST_BACKTRACE").is_err() {
+        env::set_var("RUST_BACKTRACE", "1");
+    }
 
     let token = std::env::var("DISCORD_TOKEN").expect("Missing DISCORD_TOKEN");
 

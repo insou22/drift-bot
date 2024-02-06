@@ -105,7 +105,7 @@ pub async fn get_adc_events() -> Result<Vec<AdcEvent>> {
         let title = page
             .select(&title_selector)
             .next()
-            .context("Failed to parse title from page")?
+            .with_context(|| format!("Failed to parse title from page {url}"))?
             .inner_html();
 
         let banner_url = page
