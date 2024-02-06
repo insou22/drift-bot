@@ -132,5 +132,11 @@ pub async fn get_adc_events() -> Result<Vec<AdcEvent>> {
         }
     }
 
+    println!("Current ADC events:");
+    for AdcEvent { url, title, .. } in &events {
+        println!("- {title} ({url})");
+    }
+    println!();
+
     Ok(events)
 }

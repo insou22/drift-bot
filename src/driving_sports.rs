@@ -129,12 +129,24 @@ pub async fn get_driving_sports_events() -> Result<Vec<DrivingSportsEvent>> {
         let page_contents = fetch_page_text(&client, &url).await?;
         let page = Html::parse_document(&page_contents);
 
-        if let Some(title) = page.select(&title_selector).next() {
-            let title = title.inner_html();
+        match page.select(&title_selector).next() {
+            Some(title) => {
+                let title = title.inner_html();
 
-            events.push(DrivingSportsEvent { url, title });
+                events.push(DrivingSportsEvent { url, title });
+    
+            }
+            None => {
+                eprintln!("Failed to load DrivingSports page title {url} (ignoring and continuing)");
+            }
         }
     }
+
+    println!("Current DrivingSports events:");
+    for DrivingSportsEvent { url, title } in &events {
+        println!("- {title} ({url})");
+    }
+    println!();
 
     Ok(events)
 }
