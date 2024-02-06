@@ -95,30 +95,41 @@ pub async fn get_adc_events() -> Result<Vec<AdcEvent>> {
     let mut events = Vec::new();
 
     for url in urls {
-        let page_text = fetch_page_text(&client, &url).await?;
-        let page = Html::parse_document(&page_text);
-        let title_selector =
-            Selector::parse(TITLE_SELECTOR).expect("TITLE_SELECTOR is known to be valid");
-        let banner_selector =
-            Selector::parse(BANNER_SELECTOR).expect("BANNER_SELECTOR is known to be valid");
+        let result: Result<_> = (async {
+            let page_text = fetch_page_text(&client, &url).await?;
+            let page = Html::parse_document(&page_text);
+            let title_selector =
+                Selector::parse(TITLE_SELECTOR).expect("TITLE_SELECTOR is known to be valid");
+            let banner_selector =
+                Selector::parse(BANNER_SELECTOR).expect("BANNER_SELECTOR is known to be valid");
 
-        let title = page
-            .select(&title_selector)
-            .next()
-            .with_context(|| format!("Failed to parse title from page {url}"))?
-            .inner_html();
+            let title = page
+                .select(&title_selector)
+                .next()
+                .with_context(|| format!("Failed to parse title from page {url}"))?
+                .inner_html();
 
-        let banner_url = page
-            .select(&banner_selector)
-            .next()
-            .and_then(|banner| banner.attr("data-src"))
-            .map(ToString::to_string);
+            let banner_url = page
+                .select(&banner_selector)
+                .next()
+                .and_then(|banner| banner.attr("data-src"))
+                .map(ToString::to_string);
 
-        events.push(AdcEvent {
-            url,
-            title,
-            banner_url,
-        });
+            Ok(AdcEvent {
+                url,
+                title,
+                banner_url,
+            })
+        }).await;
+
+        match result {
+            Ok(event) => {
+                events.push(event);
+            }
+            Err(err) => {
+                eprintln!("Failed to deserialize ADC page (ignoring and continuing): {err}");
+            }
+        }
     }
 
     Ok(events)
